@@ -286,8 +286,8 @@ void app_main(void)
 
 
 
-        temp_val = rand() % 100;
-        sprintf(&mensa[0],"%s %d }}",string_temp,temp_val);
+        //temp_val = rand() % 100;
+        sprintf(&mensa[0],"%s %"PRIu32" }}",string_temp,valor);
         ESP_LOGI(TAG, "%s", &mensa[0]);
         esp_mqtt_client_publish(cliente, W_TOPICO_PUBLICAR, &mensa[0], 0, 0, 0);
 
