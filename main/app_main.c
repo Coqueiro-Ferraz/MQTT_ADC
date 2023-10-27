@@ -258,7 +258,8 @@ void app_main(void)
 
     //wifi_connect_sta("coqueiro", "amigos12", 4000); minha biblioteca wifi ainda não está pronta
     ioinit(); //inicializa nossa placa de desenvolvimento do SENAI
-  
+    lcd595_init();
+    
     temp_val = rand() % 100; //isso é só formatação para a minha aplicação, você não vai precisar disso
     sprintf(&mensa[0],"%s %d }}",string_temp,temp_val);//mas pode se basear nisso para fazer o seu
     mqtt_app_start();
@@ -280,6 +281,10 @@ void app_main(void)
         esp_err_t read_result = hcf_adc_ler(&valor);
         if (read_result == ESP_OK) {
             ESP_LOGI("MAIN", "Valor da entrada analógica: %"PRIu32" mV", valor);
+            char * mostrar = "                ";
+            sprintf(mostrar,"%"PRIu32" mV", valor);
+            lcd595_byte(0x80,0);
+            lcd595_write(mostrar);
         } else {
             ESP_LOGE("MAIN", "Erro na leitura da entrada analógica");
         }
