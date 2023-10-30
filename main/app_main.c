@@ -107,7 +107,7 @@ int saidas = 0;   //saídas da placa
 int Porcentagem_1 = 0;
 int Porcentagem_2 = 0;
 
-
+char *Estado;
 char mostrador[40];
 
 //Rotina de aplicação do ADC: transforma 0 - 3.3V (0 - 4095 no ADC) em 0 a 100%
@@ -131,6 +131,7 @@ void rotina_IOs(void* pvParam)
     while(1)
     {
         entradas = io_le_escreve(saidas);
+       // ESP_LOGI("MAIN", "INs: %d OUTs: %d", entradas, saidas);
         vTaskDelay(100 / portTICK_PERIOD_MS); 
     }
 }
@@ -150,13 +151,11 @@ void rotina_adc(void)
         ESP_LOGI("MAIN", "Valor da entrada analógica: %"PRIu32" ADC0", valor); // mostra valor lido no console
             
         Porcentagem_1 = vAdcPorcento(valor);
-        sprintf(mostrador,"Sensor 1: %d %%      ", Porcentagem_1);   // arruma o valor em porcentagem na variavel mostrador
-        ESP_LOGI("MAIN", "Valor da entrada analógica: %s", mostrador);// mostra porcentagem no console
-
+        sprintf(mostrador,"S1: %d %% T1:%s    ", Porcentagem_1, Estado);   // arruma o valor em porcentagem na variavel mostrador
         lcd595_write( 1, 0, mostrador); // escreve Sensor 1: 0 % no display na linha 1 coluna 0
 
     } else {
-        ESP_LOGE("MAIN", "Erro na leitura da entrada analógica"); 
+        ESP_LOGE("MAIN", "Erro na leitura da entrada analógica 1"); 
     }
 
     vTaskDelay(10 / portTICK_PERIOD_MS); 
@@ -164,16 +163,13 @@ void rotina_adc(void)
     // faz o mesmo, só que para a outra entrada analógica
     esp_err_t read_result2 = hcf_adc_ler_3(&valor);
     if (read_result2 == ESP_OK) {
-        ESP_LOGI("MAIN", "Valor da entrada analógica: %"PRIu32" ADC3", valor);
 
         Porcentagem_2 = vAdcPorcento(valor);
         sprintf(mostrador,"Sensor 2: %d %%      ", Porcentagem_2); 
-        ESP_LOGI("MAIN", "Valor da entrada analógica: %s", mostrador);
-
         lcd595_write(2, 0, mostrador); 
 
     } else {
-        ESP_LOGE("MAIN", "Erro na leitura da entrada analógica");
+        ESP_LOGE("MAIN", "Erro na leitura da entrada analógica 3");
     }
     vTaskDelay(10 / portTICK_PERIOD_MS); 
 }
@@ -197,6 +193,7 @@ void app_main(void)
 
     // inicializar o display LCD 
     lcd595_init();
+    Estado = "ON   ";
     
     // Inicializar o componente de leitura de entrada analógica
     esp_err_t init_result = hcf_adc_iniciar();
@@ -215,26 +212,55 @@ void app_main(void)
 
     xTaskCreate(rotina_IOs, "tarefa de leitura de IOs", 1024, NULL, 3, NULL);
 
-    /////////////////////////////////////////////////////////////////////////////////////   Início do ramo principal
-    while (1) 
-    {
+    /////////////////////////////////////////////////////////////////////////////////////   Início do ramo principal                    /
+    while (1)                                                                                                                           //  | | | | | | | | | | |
+    {                                                                                                                                   //  v v v v v v v v v v v
         rotina_adc();
+//__________________________________________________________________________________________________________________________________________________________________
+//-  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  Escreve seu código aqui!!! //
+        //exemplo de aplicação da procentagem                                                                                                                       //
+        // quando o sensor está com menos de 50% ativa o TRIAC e o desativa quando passa de 90%                                                                     //
 
+        if (Porcentagem_1 <= 50){                                                                                                                                   
 
-        //exemplo de aplicação da procentagem
-        // quando o sensor está com menos de 50% ativa o TRIAC e o desativa quando passa de 90%
+            LIGAR_TRIAC_1;       
+            Estado = "ON ";
 
-        if (Porcentagem_1 <= 50){
-            
-            LIGAR_RELE_1;
+        } else if (Porcentagem_1 >= 90) {                                                                                                                           
 
-        } else if (Porcentagem_1 >= 90) {
+            DESLIGAR_TRIAC_1;                                                                                                                                       
+            Estado = "OFF";
 
-            DESLIGAR_RELE_1;
+        }       
+       
+        vTaskDelay(10 / portTICK_PERIOD_MS); 
 
-        }
+        if (Porcentagem_2 <= 5){                                                                                                                                   
 
+            LIGAR_RELE_1;        
+            LIGAR_RELE_2;       
+            LIGAR_TRIAC_2;    
+            LIGAR_TBJ_1;        
+            LIGAR_TBJ_2;     
+            LIGAR_TBJ_3;       
+            LIGAR_TBJ_4;        
 
+        } else if (Porcentagem_2 >= 35) {                                                                                                                           
+
+            DESLIGAR_RELE_1;        
+            DESLIGAR_RELE_2;       
+            DESLIGAR_TRIAC_2;    
+            DESLIGAR_TBJ_1;        
+            DESLIGAR_TBJ_2;     
+            DESLIGAR_TBJ_3;       
+            DESLIGAR_TBJ_4;                                                                                                                                    
+
+        }      
+        
+        vTaskDelay(10 / portTICK_PERIOD_MS); 
+
+//-  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  Escreve seu até aqui!!!    //
+//__________________________________________________________________________________________________________________________________________________________________//
         vTaskDelay(10 / portTICK_PERIOD_MS);    
     }
     
