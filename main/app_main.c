@@ -1,13 +1,52 @@
-/* TESTEMQTT (em TCP) por HagaCeeF. Não me responsabilizo se não funcionar, não está completo,
-    é apenas um código para fins didáticos, para ajudar os alunos a fazerem o TCC
-    baseado no arquivo de exemplo do ESP-IDF para comunicar com o broker wegnology.
-    Originalmente feito para versão 4 do IDF, tive muito trabalho para atualizar para a versão 5, podem haver
-    problemas sobressalentes.
-    Sugiro que você programe sua própria coexão com wifi pois esta é genérica e não tem tratamento de erros 
+//leia com atenção!!!!!
 
-    Esse código foi desenvolvido no meu PC, por isso esta na pasta C:\coqueiro2\TesteMQTT, se você quiser que funcione
-    no seu PC, faça o mesmo caminho ou faça a correção de pasta manualmente se não compilar.
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                                                                _                    //
+//                   _  .   _         _   _               _   ___   _         _   _    _               //
+//              |   |_  |  |_|       |   | |  |\/|       |_|   |   |_  |\ |  |   |_|  | |              //    
+//              |_  |_  |  | |       |_  |_|  |  |       | |   |   |_  | \|  |_  | |  |_|              //
+//                                                                            /                        //
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/*  MQTT_ADC (em TCP) por HagaCeeF. 
+    
+    Não me responsabilizo se não funcionar, não está completo,
+    é apenas um código para fins didáticos, podem haver problemas sobressalentes.
+    
+    Usado para efetuar testes na nossa placa de desenvolvimento:
+
+    Explicação sobre ADC
+
+        A função   hcf_adc_ler(&valor) retorna para a variável valor o valor lido no ADC0 da placa (método ONESHOT)
+        
+        A função   hcf_adc_ler3(&valor) retorna para a variável valor o valor lido no ADC3 da placa (método ONESHOT)
+
+        O sinal lido é uma média de 256 amostras para minimizar o ruído do ADC e a atenuação é de 11dB, portanto a entrada pode variar de 0 a 3.3V (0 a 4095 bits)
+
+        A função   Porcentagem_1 = vAdcPorcento(valor); transforma o valor que foi lido no ADC (que é de 0 a 4095) em uma porcentagem (0 a 100 %)
+
+        Porcentagem_1 se refere ao ADC0 e Porcentagem_2 ao ADC3
+
+    Explicação sobre controle de entradas e saídas (IOs)
+
+        Foi estabelecido um ramo que executa uma rotina em paralelo com a principal chamada  rotina_IOs, nela as entradas são lidas e as saídas escritas a cada 100ms
+
+        Se você precisar do valor de todos os 8 bits da entrada, eles ficam gravados na variável entradas
+
+        Se você precisar escrever algo na saída, utilize a variável saída = os oito bits que você quer escrever, por exemplo 0b00100110
+            Se você quiser ligar apenas um relé, use a macro LIGAR_RELE_1 ou 2 (#define LIGAR_RELE_1 saidas|=0b00000001)
+
+    Explicação sobre o display e console
+
+        A função    ESP_LOGI("MAIN", "Valor da entrada analógica: %"PRIu32" ADC0", valor); mostra apenas no console
+
+        A função    sprintf(mostrador,"Sensor 1: %d %%      ", Porcentagem_2); organiza o texto na variavel mostrador, ela escreve "Sensor 1: 35 %" se a variável porcentagem_2 estiver em 35
+
+        A função    lcd595_write(2, 0, mostrador); escreve no display, o primeiro valor é a linha e o segundo, a coluna, o terceiro é o texto para escrever
+
+
 */
+
 #include <inttypes.h> //<- não tem problema se ficar sublinhado de vermelho ou azul, se quiser resolver basta 
 #include <stdio.h> //incluir o arquivo cpp_properties.json na pasta .vscode
 #include <stdint.h>
@@ -39,280 +78,169 @@
 #include "lcdvia595.h"
 #include "hcf_adc.h"
 
-/* 
-<------------- Olhe a pasta Recursos/dashboard.png 
-*/
+#define DESLIGAR_TUDO       saidas&=0b00000000
+#define LIGAR_RELE_1        saidas|=0b00000001
+#define DESLIGAR_RELE_1     saidas&=0b11111110
+#define LIGAR_RELE_2        saidas|=0b00000010
+#define DESLIGAR_RELE_2     saidas&=0b11111101
+#define LIGAR_TRIAC_1       saidas|=0b00000100
+#define DESLIGAR_TRIAC_1    saidas&=0b11111011
+#define LIGAR_TRIAC_2       saidas|=0b00001000
+#define DESLIGAR_TRIAC_2    saidas&=0b11110111
+#define LIGAR_TBJ_1         saidas|=0b00010000
+#define DESLIGAR_TBJ_1      saidas&=0b11101111
+#define LIGAR_TBJ_2         saidas|=0b00100000
+#define DESLIGAR_TBJ_2      saidas&=0b11011111
+#define LIGAR_TBJ_3         saidas|=0b01000000
+#define DESLIGAR_TBJ_3      saidas&=0b10111111
+#define LIGAR_TBJ_4         saidas|=0b10000000
+#define DESLIGAR_TBJ_4      saidas&=0b01111111
 
-#define W_DEVICE_ID "64ece4be7b49f24719198597" //Use o DeviceID no Wegnology  
-#define W_ACCESS_KEY "c588fd20-5be4-4172-86f8-a0ee67cd8406" //use a chave de acesso e a senha
-#define W_PASSWORD "fbdcde94ebafa343f4e0fc02911d2c098b8fe7b9f3aaf4f30c5cc78a906ef1f8"
-#define W_TOPICO_PUBLICAR "wnology/64ece4be7b49f24719198597/state" //esse número no meio do tópico deve ser mudado pelo ID do seu device Wegnology
-#define W_TOPICO_SUBSCREVER "wnology/64ece4be7b49f24719198597/command" // aqui também
+static const char *TAG = "MQTT_ADC";
 
+//Área de declaração de variáveis
+//-----------------------------------------------------------------------------------------------------------------------
 
-static const char *TAG = "MQTT_EXAMPLE";
-char *Inform;
-int temp_val = 0;
-int ledstatus = 0;
-int entradas = 0;
-const char *strLED = "LED\":"; //você poderá criar suas variáveis baseando-se nessas aqui
-const char *string_temp = "{\"data\": {\"Temperatura\": ";
-char mensa[40];
-esp_mqtt_client_handle_t cliente; 
+int entradas = 0; //entradas da placa
+int saidas = 0;   //saídas da placa
 
-//leia com atenção!!!!!
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
-//                                                                                _                    //
-//                   _  .   _         _   _               _   ___   _         _   _    _               //
-//              |   |_  |  |_|       |   | |  |\/|       |_|   |   |_  |\ |  |   |_|  | |              //    
-//              |_  |_  |  | |       |_  |_|  |  |       | |   |   |_  | \|  |_  | |  |_|              //
-//                                                                            /                        //
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
+int Porcentagem_1 = 0;
+int Porcentagem_2 = 0;
 
 
-/*  A função a seguir usa o dado recebido, publicado pelo dashboard (variavel Inform)
-    e compara com a string strLED (que no meu exemplo assume o valor "LED\":")
-    isso significa que, se o que foi publicado no dashboard tem a sequencia de caracteres "LED":"
-    vai executar o próximo bloco de código, onde a variavel Inform agora será comparada ao valor "true"
-    pois no lado do dashboard eu poderia ter enviado "LED":"true" ou "LED":"false"
-    quando o valor é true o led embarcado do ESP (pino 2) muda de estado, se estava apagado, acende, e vice-versa.
+char mostrador[40];
 
-    Como o código que fiz é para mostrar a imagem do led no dashboard aceso, tenho que publicar no tópico state,
-    por isso uso a macro W_TOPICO_PUBLICAR, a variavel que usei no meu dashboard se chama est_esp, e como a publicação 
-    tem que ser formatada como json tem que ter essas chaves {}, a TAG data tem que ser usada para passar o valor
-    e não testei se funcionaria sem ela. O link passado é o de onde armazenei a imagem dentro do Wegnology, 
-    só estou dizendo para o dashboard carregá-la.
+//Rotina de aplicação do ADC: transforma 0 - 3.3V (0 - 4095 no ADC) em 0 a 100%
+//-----------------------------------------------------------------------------------------------------------------------
 
-*/
-void qualificador(esp_mqtt_client_handle_t client) //se for mexer aqui, mexa apenas no nome da função qualificador, usei esse nome pq foi o que eu pensei na hora 
+int vAdcPorcento(uint32_t valor_adc)
 {
-    // você pode colocar seu código aqui, isso não vai afetar o funcionamento do programa, lembre-se de configurar o broker e o wifi corretamente
-    // para configurar o wifi, use o menuconfig e vá até exampleconnection
-    // o broker deverá ser configurado na função mqtt_app_start abaixo
-    if(strstr(Inform, strLED)) // aqui estou perguntando se o que foi publicado no tópico command está relacionado a minha TAG LED
-    {//caso afirmativo
-        
-        if(strstr(Inform, "true")) // aqui pergunto se a TAG LED recebeu o valor "true"
-        {//se "LED":"true"
-            ledstatus = !ledstatus;//inverte LED embarcado
-            if(ledstatus==1)//se o LED embarcado está ligado
-            {
-                printf("LED ligado\n");
-                // publico no tópico state {"data":{"est_esp":"link da imagem"}}
-                esp_mqtt_client_publish(client, W_TOPICO_PUBLICAR, 
-                "{\"data\": {\"est_esp\": \"https://files.wnology.io/64ece41c7188db1db16b6c74/imagens/esp%20led.png\" }}", 0, 0, 0);
-            }
-            else
-            {
-                printf("LED desligado\n");
-                esp_mqtt_client_publish(client, W_TOPICO_PUBLICAR, 
-                "{\"data\": {\"est_esp\": \"https://files.wnology.io/64ece41c7188db1db16b6c74/imagens/esp%20ligado.png\" }}", 0, 0, 0);
-            }
-        }
-        else
-        {//se "LED":"false"
-            temp_val = rand() % 100;  // valor aleatório entre 0 e 100 para simular a temperatura
-            sprintf(&mensa[0],"%s %d }}",string_temp,temp_val);//isso tudo aqui é só pra mostrar no console o que estou enviando pro broker
-            ESP_LOGI(TAG, "%s", &mensa[0]);//vai aparecer de verde no console: MQTT_EXAMPLE: {"data": {Temperatura": 25 }}
-            esp_mqtt_client_publish(client, W_TOPICO_PUBLICAR, &mensa[0], 0, 0, 0); // Aqui é onde está fazendo a publicação no broker efetivamente
-        }
-        
-        gpio_set_level(TEC_SH_LD,ledstatus);//aqui é onde realmente acende ou apaga o LED embarcado
-    
-    }
+    int percentual = 0;
 
+    percentual = valor_adc * 100 / 4095;
+
+    return percentual;
 }
 
-//-------------------------------------------------------------------------------------------------------------------------
-//não mexa! começando aqui
-static void log_error_if_nonzero(const char *message, int error_code)
+
+// Rotina de leitura das entradas e saídas da placa
+//-----------------------------------------------------------------------------------------------------------------------
+
+void rotina_IOs(void* pvParam)
 {
-    if (error_code != 0) {
-        ESP_LOGE(TAG, "Last error %s: 0x%x", message, error_code);
+    while(1)
+    {
+        entradas = io_le_escreve(saidas);
+        vTaskDelay(100 / portTICK_PERIOD_MS); 
     }
-}
-static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
-{
-    ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%ld", base, event_id);
-    esp_mqtt_event_handle_t event = event_data;
-    esp_mqtt_client_handle_t client = event->client;
-    int msg_id;
-    switch ((esp_mqtt_event_id_t)event_id) {
-    case MQTT_EVENT_CONNECTED:        
-        ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-        msg_id = esp_mqtt_client_publish(client, W_TOPICO_PUBLICAR, 
-            &mensa[0], 0, 0, 0);
-        ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
-        ESP_LOGI(TAG, "%s", &mensa[0]);
-       
-        msg_id = esp_mqtt_client_subscribe(client, W_TOPICO_SUBSCREVER, 0);
-        ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
-        break;
-    case MQTT_EVENT_DISCONNECTED:
-        ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
-        break;
-
-    case MQTT_EVENT_SUBSCRIBED:
-        ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
-        break;
-    case MQTT_EVENT_UNSUBSCRIBED:
-        ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
-        break;
-    case MQTT_EVENT_PUBLISHED:
-        ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
-        break;
-    case MQTT_EVENT_DATA:
-        ESP_LOGI(TAG, "MQTT_EVENT_DATA");
-        printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
-        printf("DATA=%.*s\r\n", event->data_len, event->data);
-        Inform = event->data;
-        qualificador(client); //aqui está a mágica
-        break;
-    case MQTT_EVENT_ERROR:
-        ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
-        if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
-            log_error_if_nonzero("reported from esp-tls", event->error_handle->esp_tls_last_esp_err);
-            log_error_if_nonzero("reported from tls stack", event->error_handle->esp_tls_stack_err);
-            log_error_if_nonzero("captured as transport's socket errno",  event->error_handle->esp_transport_sock_errno);
-            ESP_LOGI(TAG, "Last errno string (%s)", strerror(event->error_handle->esp_transport_sock_errno));
-        }
-        break;
-    default:
-        ESP_LOGI(TAG, "Other event id:%d", event->event_id);
-        break;
-    }
-}
-
-static void mqtt_app_start(void)
-{
-    esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = "mqtt://broker.app.wnology.io",// se tu tiver outro broker pode colocar aqui, mas pro wnology é esse mesmo
-        .credentials.set_null_client_id = false,  //coloquei e nem sei se precisa
-        .credentials.client_id = W_DEVICE_ID,
-        .credentials.username = W_ACCESS_KEY,
-        .credentials.authentication.password = W_PASSWORD,
-        
-    };
-    //isso aqui a baixo não vai precisar, só é usado se vc quiser passar o endereço do broker manualmente via teclado
-#if CONFIG_BROKER_URL_FROM_STDIN
-    char line[128];
-
-    if (strcmp(mqtt_cfg.uri, "FROM_STDIN") == 0) {
-        int count = 0;
-        printf("Please enter url of mqtt broker\n");
-        while (count < 128) {
-            int c = fgetc(stdin);
-            if (c == '\n') {
-                line[count] = '\0';
-                break;
-            } else if (c > 0 && c < 127) {
-                line[count] = c;
-                ++count;
-            }
-            vTaskDelay(10 / portTICK_PERIOD_MS);
-        }
-        mqtt_cfg.uri = line;
-        printf("Broker url: %s\n", line);
-    } else {
-        //ESP_LOGE(TAG, "Configuration mismatch: wrong broker url");
-        abort();
-    }
-#endif /* CONFIG_BROKER_URL_FROM_STDIN */
-
-    esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
-    cliente = client;
-    /* The last argument may be used to pass data to the event handler, in this example mqtt_event_handler */
-    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
-    esp_mqtt_client_start(client);
 }
 
 //-----------------------------------------------------------------------------------------------------------------------
-//finalizando aqui
+
+// Rotina de Tratamento da leitura anaógica
+//-----------------------------------------------------------------------------------------------------------------------
+
+void rotina_adc(void)
+{
+    uint32_t valor;
+
+    // Lê o valor da entrada analógica
+    esp_err_t read_result = hcf_adc_ler(&valor); 
+    if (read_result == ESP_OK) {
+        ESP_LOGI("MAIN", "Valor da entrada analógica: %"PRIu32" ADC0", valor); // mostra valor lido no console
+            
+        Porcentagem_1 = vAdcPorcento(valor);
+        sprintf(mostrador,"Sensor 1: %d %%      ", Porcentagem_1);   // arruma o valor em porcentagem na variavel mostrador
+        ESP_LOGI("MAIN", "Valor da entrada analógica: %s", mostrador);// mostra porcentagem no console
+
+        lcd595_write( 1, 0, mostrador); // escreve Sensor 1: 0 % no display na linha 1 coluna 0
+
+    } else {
+        ESP_LOGE("MAIN", "Erro na leitura da entrada analógica"); 
+    }
+
+    vTaskDelay(10 / portTICK_PERIOD_MS); 
+
+    // faz o mesmo, só que para a outra entrada analógica
+    esp_err_t read_result2 = hcf_adc_ler_3(&valor);
+    if (read_result2 == ESP_OK) {
+        ESP_LOGI("MAIN", "Valor da entrada analógica: %"PRIu32" ADC3", valor);
+
+        Porcentagem_2 = vAdcPorcento(valor);
+        sprintf(mostrador,"Sensor 2: %d %%      ", Porcentagem_2); 
+        ESP_LOGI("MAIN", "Valor da entrada analógica: %s", mostrador);
+
+        lcd595_write(2, 0, mostrador); 
+
+    } else {
+        ESP_LOGE("MAIN", "Erro na leitura da entrada analógica");
+    }
+    vTaskDelay(10 / portTICK_PERIOD_MS); 
+}
+//-----------------------------------------------------------------------------------------------------------------------
 
 
 void app_main(void)
 {
-    /*
+    /////////////////////////////////////////////////////////////////////////////////////   Programa principal
+
+
     // a seguir, apenas informações de console, aquelas notas verdes no início da execução
     ESP_LOGI(TAG, "[APP] Startup..");
     ESP_LOGI(TAG, "[APP] Free memory: %lu bytes", esp_get_free_heap_size());
     ESP_LOGI(TAG, "[APP] IDF version: %s", esp_get_idf_version());
 
-    esp_log_level_set("*", ESP_LOG_INFO);
-    esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
-    esp_log_level_set("MQTT_EXAMPLE", ESP_LOG_VERBOSE);
-    esp_log_level_set("TRANSPORT_BASE", ESP_LOG_VERBOSE);
-    esp_log_level_set("esp-tls", ESP_LOG_VERBOSE);
-    esp_log_level_set("TRANSPORT", ESP_LOG_VERBOSE);
-    esp_log_level_set("OUTBOX", ESP_LOG_VERBOSE);
+    /////////////////////////////////////////////////////////////////////////////////////   Inicializações de periféricos (manter assim)
+    
+    // inicializar os IOs da placa
+    ioinit();      
 
-    ESP_ERROR_CHECK(nvs_flash_init()); //se vc quiser saber prar que serve, basta copiar e colar no chatGPT ou semelhante e pedir que explique
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-
-   
-    ESP_ERROR_CHECK(example_connect());
-*/
-    //wifi_connect_sta("coqueiro", "amigos12", 4000); minha biblioteca wifi ainda não está pronta
-    ioinit(); //inicializa nossa placa de desenvolvimento do SENAI
+    // inicializar o display LCD 
     lcd595_init();
-    /*
-    temp_val = rand() % 100; //isso é só formatação para a minha aplicação, você não vai precisar disso
-    sprintf(&mensa[0],"%s %d }}",string_temp,temp_val);//mas pode se basear nisso para fazer o seu
-    mqtt_app_start();
-*/
-
-    // Inicializa o componente de leitura de entrada analógica
+    
+    // Inicializar o componente de leitura de entrada analógica
     esp_err_t init_result = hcf_adc_iniciar();
     if (init_result != ESP_OK) {
         ESP_LOGE("MAIN", "Erro ao inicializar o componente ADC personalizado");
-        //return;
     }
 
+    //delay
+    vTaskDelay(1000 / portTICK_PERIOD_MS); 
 
-    vTaskDelay(1000 / portTICK_PERIOD_MS);//espera a conexão e depois fica mandando o dado de temperatura periodicamente
+    /////////////////////////////////////////////////////////////////////////////////////   Periféricos inicializados
+
+    DESLIGAR_TUDO;
+
+    /////////////////////////////////////////////////////////////////////////////////////   Ramos de execução
+
+    xTaskCreate(rotina_IOs, "tarefa de leitura de IOs", 1024, NULL, 3, NULL);
+
+    /////////////////////////////////////////////////////////////////////////////////////   Início do ramo principal
     while (1) 
     {
-        uint32_t valor;
+        rotina_adc();
 
-        // Lê o valor da entrada analógica
-        esp_err_t read_result = hcf_adc_ler(&valor);
-        if (read_result == ESP_OK) {
-            ESP_LOGI("MAIN", "Valor da entrada analógica: %"PRIu32" ADC0", valor);
-            char mostrar[40];
-            sprintf(mostrar,"%"PRIu32" ADC1  ", valor);
-            lcd595_byte(0x80,0);
-            lcd595_write(mostrar);
-        } else {
-            ESP_LOGE("MAIN", "Erro na leitura da entrada analógica");
+
+        //exemplo de aplicação da procentagem
+        // quando o sensor está com menos de 50% ativa o TRIAC e o desativa quando passa de 90%
+
+        if (Porcentagem_1 <= 50){
+            
+            LIGAR_RELE_1;
+
+        } else if (Porcentagem_1 >= 90) {
+
+            DESLIGAR_RELE_1;
+
         }
 
-        esp_err_t read_result2 = hcf_adc_ler_3(&valor);
-        if (read_result2 == ESP_OK) {
-            ESP_LOGI("MAIN", "Valor da entrada analógica: %"PRIu32" ADC3", valor);
-            char mostrar[40];
-            sprintf(mostrar,"%"PRIu32" ADC3  ", valor);
-            lcd595_byte(0xC0,0);
-            lcd595_write(mostrar);
-        } else {
-            ESP_LOGE("MAIN", "Erro na leitura da entrada analógica");
-        }
-        vTaskDelay(200 / portTICK_PERIOD_MS); 
-/*
 
-        //temp_val = rand() % 100;
-        sprintf(&mensa[0],"%s %"PRIu32" }}",string_temp,valor);
-        ESP_LOGI(TAG, "%s", &mensa[0]);
-        esp_mqtt_client_publish(cliente, W_TOPICO_PUBLICAR, &mensa[0], 0, 0, 0);
-
-
-        vTaskDelay(2000 / portTICK_PERIOD_MS); //eu estou enviando a temperatura a cada 10s
-        //lembrando que o wegnology só aceita no máximo 2 payloads por segundo
-    */
-    
+        vTaskDelay(10 / portTICK_PERIOD_MS);    
     }
-
     
+    // caso erro no programa desliga o módulo ADC
     hcf_adc_limpar();
+
+    /////////////////////////////////////////////////////////////////////////////////////   Fim do ramo principal
+    
 }

@@ -62,8 +62,17 @@ void lcd595_byte(uint8_t byte, uint8_t rs)
 }
 
 
-void lcd595_write(const char *str)
+void lcd595_write(int linha, int coluna, const char *str)
 {
+    if(linha == 1)
+    {
+        lcd595_byte(0x80 + coluna, 0);
+    } else {
+        lcd595_byte(0xC0 + coluna, 0);
+    }
+
+    vTaskDelay(1 / portTICK_RATE_MS);
+    
     while (*str)
     {
         lcd595_byte(*str++, 1);
