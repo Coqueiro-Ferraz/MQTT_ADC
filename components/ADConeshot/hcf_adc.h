@@ -9,6 +9,8 @@
     // Lê o valor de uma entrada analógica
     esp_err_t hcf_adc_ler(uint32_t *value);
 
+    esp_err_t hcf_adc_ler_3(uint32_t *value);
+
     // Finaliza o componente ADC
     void hcf_adc_limpar(void);
 

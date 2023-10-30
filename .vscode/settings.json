@@ -1,5 +1,8 @@
 {
     "idf.adapterTargetName": "esp32",
     "idf.portWin": "COM3",
-    "idf.flashType": "UART"
+    "idf.flashType": "UART",
+    "files.associations": {
+        "hcf_adc.h": "c"
+    }
 }

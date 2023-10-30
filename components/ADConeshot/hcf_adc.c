@@ -6,7 +6,8 @@
 static const char *TAG = "HCF_ADC";
 
 // Defina o canal ADC que você está usando para a entrada analógica
-#define HCF_ADC_CANAL  ADC_CHANNEL_0
+#define HCF_ADC_CANAL_0  ADC_CHANNEL_0
+#define HCF_ADC_CANAL_3  ADC_CHANNEL_3
 
 // Use esta atenuação para obter leituras precisas de uma entrada entre 0V e 3.3V
 #define HCF_ADC_ATENUA    ADC_ATTEN_DB_11
@@ -19,9 +20,9 @@ static bool calibration_enabled = false;
 static bool adc_calibra_inicializa(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle);
 static void adc_calibra_finaliza(adc_cali_handle_t handle);
 
-
 esp_err_t hcf_adc_iniciar(void) {
     // Configuração da unidade ADC
+
     adc_oneshot_unit_init_cfg_t init_config = {
         .unit_id = ADC_UNIT_1,
     };
@@ -37,14 +38,21 @@ esp_err_t hcf_adc_iniciar(void) {
         .bitwidth = ADC_BITWIDTH_12,
         .atten = HCF_ADC_ATENUA,
     };
-    err = adc_oneshot_config_channel(adc_handle, HCF_ADC_CANAL, &config);
+    
+    err = adc_oneshot_config_channel(adc_handle, HCF_ADC_CANAL_0, &config);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Erro ao configurar o canal ADC");
         return err;
     }
 
+    //added
+    err = adc_oneshot_config_channel(adc_handle, HCF_ADC_CANAL_3, &config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Erro ao configurar o canal ADC");
+        return err;
+    }
     // Inicializa a calibração se disponível
-    calibration_enabled = adc_calibra_inicializa(ADC_UNIT_1, HCF_ADC_CANAL, HCF_ADC_ATENUA, &calibration_handle);
+  ////// // calibration_enabled = adc_calibra_inicializa(ADC_UNIT_1, HCF_ADC_CANAL_0, HCF_ADC_ATENUA, &calibration_handle);
 
     return ESP_OK;
 }
@@ -54,7 +62,7 @@ esp_err_t hcf_adc_ler(uint32_t *value) {
     uint32_t calibrated_value = 0;
 
     for (int i = 0; i < HCF_ADC_AMOSTRAS; i++) {
-        esp_err_t err = adc_oneshot_read(adc_handle, HCF_ADC_CANAL, &adc_value);
+        esp_err_t err = adc_oneshot_read(adc_handle, HCF_ADC_CANAL_0, &adc_value);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Erro na leitura ADC");
             return err;
@@ -75,6 +83,26 @@ esp_err_t hcf_adc_ler(uint32_t *value) {
     } else {
         *value = (uint32_t)calibrated_value;
     }
+
+    return ESP_OK;
+}
+
+esp_err_t hcf_adc_ler_3(uint32_t *value) {
+    int adc_value;
+    uint32_t calibrated_value = 0;
+
+    for (int i = 0; i < HCF_ADC_AMOSTRAS; i++) {
+        esp_err_t err = adc_oneshot_read(adc_handle, HCF_ADC_CANAL_3, &adc_value);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Erro na leitura ADC");
+            return err;
+        }
+        calibrated_value += adc_value;
+    }
+
+    calibrated_value /= HCF_ADC_AMOSTRAS;
+
+    *value = (uint32_t)calibrated_value;
 
     return ESP_OK;
 }

@@ -233,6 +233,7 @@ static void mqtt_app_start(void)
 
 void app_main(void)
 {
+    /*
     // a seguir, apenas informações de console, aquelas notas verdes no início da execução
     ESP_LOGI(TAG, "[APP] Startup..");
     ESP_LOGI(TAG, "[APP] Free memory: %lu bytes", esp_get_free_heap_size());
@@ -250,19 +251,17 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    /* This helper function configures Wi-Fi or Ethernet, as selected in menuconfig.
-     * Read "Establishing Wi-Fi or Ethernet Connection" section in
-     * examples/protocols/README.md for more information about this function.
-     */
+   
     ESP_ERROR_CHECK(example_connect());
-
+*/
     //wifi_connect_sta("coqueiro", "amigos12", 4000); minha biblioteca wifi ainda não está pronta
     ioinit(); //inicializa nossa placa de desenvolvimento do SENAI
     lcd595_init();
-    
+    /*
     temp_val = rand() % 100; //isso é só formatação para a minha aplicação, você não vai precisar disso
     sprintf(&mensa[0],"%s %d }}",string_temp,temp_val);//mas pode se basear nisso para fazer o seu
     mqtt_app_start();
+*/
 
     // Inicializa o componente de leitura de entrada analógica
     esp_err_t init_result = hcf_adc_iniciar();
@@ -272,7 +271,7 @@ void app_main(void)
     }
 
 
-    vTaskDelay(10000 / portTICK_PERIOD_MS);//espera a conexão e depois fica mandando o dado de temperatura periodicamente
+    vTaskDelay(1000 / portTICK_PERIOD_MS);//espera a conexão e depois fica mandando o dado de temperatura periodicamente
     while (1) 
     {
         uint32_t valor;
@@ -280,8 +279,8 @@ void app_main(void)
         // Lê o valor da entrada analógica
         esp_err_t read_result = hcf_adc_ler(&valor);
         if (read_result == ESP_OK) {
-            ESP_LOGI("MAIN", "Valor da entrada analógica: %"PRIu32" mV", valor);
-            char * mostrar = "                ";
+            ESP_LOGI("MAIN", "Valor da entrada analógica: %"PRIu32" ADC0", valor);
+            char mostrar[40];
             sprintf(mostrar,"%"PRIu32" mV", valor);
             lcd595_byte(0x80,0);
             lcd595_write(mostrar);
@@ -289,7 +288,18 @@ void app_main(void)
             ESP_LOGE("MAIN", "Erro na leitura da entrada analógica");
         }
 
-
+        esp_err_t read_result2 = hcf_adc_ler_3(&valor);
+        if (read_result2 == ESP_OK) {
+            ESP_LOGI("MAIN", "Valor da entrada analógica: %"PRIu32" ADC3", valor);
+            char mostrar[40];
+            sprintf(mostrar,"%"PRIu32" mV", valor);
+            lcd595_byte(0x80,0);
+            lcd595_write(mostrar);
+        } else {
+            ESP_LOGE("MAIN", "Erro na leitura da entrada analógica");
+        }
+        vTaskDelay(200 / portTICK_PERIOD_MS); 
+/*
 
         //temp_val = rand() % 100;
         sprintf(&mensa[0],"%s %"PRIu32" }}",string_temp,valor);
@@ -299,6 +309,10 @@ void app_main(void)
 
         vTaskDelay(2000 / portTICK_PERIOD_MS); //eu estou enviando a temperatura a cada 10s
         //lembrando que o wegnology só aceita no máximo 2 payloads por segundo
+    */
+    
     }
+
+    
     hcf_adc_limpar();
 }
