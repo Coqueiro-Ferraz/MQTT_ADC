@@ -281,7 +281,7 @@ void app_main(void)
         if (read_result == ESP_OK) {
             ESP_LOGI("MAIN", "Valor da entrada analógica: %"PRIu32" ADC0", valor);
             char mostrar[40];
-            sprintf(mostrar,"%"PRIu32" mV", valor);
+            sprintf(mostrar,"%"PRIu32" ADC1  ", valor);
             lcd595_byte(0x80,0);
             lcd595_write(mostrar);
         } else {
@@ -292,8 +292,8 @@ void app_main(void)
         if (read_result2 == ESP_OK) {
             ESP_LOGI("MAIN", "Valor da entrada analógica: %"PRIu32" ADC3", valor);
             char mostrar[40];
-            sprintf(mostrar,"%"PRIu32" mV", valor);
-            lcd595_byte(0x80,0);
+            sprintf(mostrar,"%"PRIu32" ADC3  ", valor);
+            lcd595_byte(0xC0,0);
             lcd595_write(mostrar);
         } else {
             ESP_LOGE("MAIN", "Erro na leitura da entrada analógica");
